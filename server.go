@@ -14,7 +14,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,6 +30,15 @@ var (
 	addr = "0.0.0.0:50001"
 	port = 50001
 )
+
+// Problem detail as defined in RFC7807 specification ( https://tools.ietf.org/html/rfc7807 )
+type problemDetail struct {
+	Type     string `json:"type"`
+	Title    string `json:"title"`
+	Status   int    `json:"status"`
+	Detail   string `json:"detail"`
+	Instance string `json:"instance"`
+}
 
 func main() {
 
@@ -69,11 +81,21 @@ func main() {
 	fmt.Println("")
 }
 
-func performRequest(id string) (body string, err error) {
+func performRequest(id string) (body string, status int, err error) {
 
 	// TODO! - Write logic here to perform service function and return either result or error in response
-	msg := "Service running"
-	return "{ \"ID\" : \"" + id + "\", \"Message\" : \"" + msg + "\", \"Status\" : \"" + http.StatusText(200) + "\" }", nil
+	msg := "Service running!"
+
+	if rand.Intn(100)%2 == 0 {
+		// We have a problem so generate a problem detail ( N.B Depending on the issue you may return any 400 - 500 status to provide addtional information)
+		msg = "Service un-available!"
+		problem := &problemDetail{Type: "http://example.org/error/500", Title: "The service is currently un-available", Status: http.StatusInternalServerError, Detail: "Unable to resolve DNS hostname MyService", Instance: "http://example.org/myservice/error/500"}
+		document, _ := json.Marshal(problem)
+		return string(document), http.StatusInternalServerError, errors.New(msg)
+	}
+	// All is OK so just return the response to the caller
+	return "{ \"ID\" : \"" + id + "\", \"Message\" : \"" + msg + "\", \"Status\" : \"" + http.StatusText(http.StatusOK) + "\" }", http.StatusOK, nil
+
 }
 
 func readinessProbe(response http.ResponseWriter, request *http.Request) {
@@ -81,19 +103,19 @@ func readinessProbe(response http.ResponseWriter, request *http.Request) {
 	// Tells container orchestrator such as Mesos/Marathon OR Kubernetes or discovery system such as Consul OR ZooKeeper
 	// that we are avaialable to serve traffic, and that can communicate with downstream services such as databases or queues
 
-	// TODO! - Write logic here to determine application readiness for your service
-	writeStandardHeaders(response, http.StatusOK)
+	// TODO! - Write logic here to determine application readiness for your service 
+	writeStandardHeaders(response, http.StatusOK, "application/json")
 }
 
 func requestHandler(response http.ResponseWriter, request *http.Request) {
 
 	id := mux.Vars(request)["id"]
 
-	body, err := performRequest(id)
+	body, status, err := performRequest(id)
 	if err != nil {
-		writeStandardHeaders(response, http.StatusInternalServerError)
+		writeStandardHeaders(response, status, "application/problem+json")
 	} else {
-		writeStandardHeaders(response, http.StatusOK)
+		writeStandardHeaders(response, http.StatusOK, "application/json")
 	}
 
 	fmt.Fprintf(response, body)
@@ -104,15 +126,17 @@ func livenessProbe(response http.ResponseWriter, request *http.Request) {
 
 	// Tells container orchestrator such as Mesos/Marathon OR Kubernetes or discovery system such as Consul OR ZooKeeper
 	// that we are still alive, haven't crashed, and don't need to be re-started. Equivalant to a HTTP Ping
-	writeStandardHeaders(response, http.StatusOK)
+	writeStandardHeaders(response, http.StatusOK, "application/json")
 }
 
-func writeStandardHeaders(response http.ResponseWriter, status int) {
+func writeStandardHeaders(response http.ResponseWriter, status int, contentType string) {
 
 	// set common headers and response code
-	response.Header().Set("content-type", "application/json")
+	response.Header().Set("content-type", contentType+";charset=utf-8")
+	response.Header().Set("Content-Language", "en")
 	response.Header().Set("Cache-Control", "no-cache")
 	response.Header().Set("Pragma", "no-cache")
 	response.Header().Set("Expires", "-1")
+
 	response.WriteHeader(status)
 }
