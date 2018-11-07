@@ -86,12 +86,11 @@ func performRequest(id string) (body string, status int, err error) {
 	// TODO! - Write logic here to perform service function and return either result or error in response
 	msg := "Service running!"
 
-	if rand.Intn(100)%2 == 0 {
+	if rand.Intn(10)%2 == 0 {
 		// We have a problem so generate a problem detail ( N.B Depending on the issue you may return any 400 - 500 status to provide addtional information)
-		msg = "Service un-available!"
 		problem := &problemDetail{Type: "http://example.org/error/500", Title: "The service is currently un-available", Status: http.StatusInternalServerError, Detail: "Unable to resolve DNS hostname MyService", Instance: "http://example.org/myservice/error/500"}
 		document, _ := json.Marshal(problem)
-		return string(document), http.StatusInternalServerError, errors.New(msg)
+		return string(document), http.StatusInternalServerError, errors.New("Service un-available!")
 	}
 	// All is OK so just return the response to the caller
 	return "{ \"ID\" : \"" + id + "\", \"Message\" : \"" + msg + "\", \"Status\" : \"" + http.StatusText(http.StatusOK) + "\" }", http.StatusOK, nil
@@ -103,7 +102,7 @@ func readinessProbe(response http.ResponseWriter, request *http.Request) {
 	// Tells container orchestrator such as Mesos/Marathon OR Kubernetes or discovery system such as Consul OR ZooKeeper
 	// that we are avaialable to serve traffic, and that can communicate with downstream services such as databases or queues
 
-	// TODO! - Write logic here to determine application readiness for your service 
+	// TODO! - Write logic here to determine application readiness for your service
 	writeStandardHeaders(response, http.StatusOK, "application/json")
 }
 
@@ -111,14 +110,13 @@ func requestHandler(response http.ResponseWriter, request *http.Request) {
 
 	id := mux.Vars(request)["id"]
 
-	body, status, err := performRequest(id)
-	if err != nil {
+	if body, status, err := performRequest(id); err != nil {
 		writeStandardHeaders(response, status, "application/problem+json")
+		fmt.Fprintf(response, body)
 	} else {
-		writeStandardHeaders(response, http.StatusOK, "application/json")
+		writeStandardHeaders(response, status, "application/json")
+		fmt.Fprintf(response, body)
 	}
-
-	fmt.Fprintf(response, body)
 
 }
 
